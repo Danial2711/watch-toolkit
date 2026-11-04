@@ -9,6 +9,7 @@ wearCompose = "1.5.6"
 coroutines = "1.10.2"
 junit = "4.13.2"
 wearOngoing = "1.1.0"
+wearInput = "1.2.0"
 orgJson = "20260814"
 
 [libraries]
@@ -24,6 +25,7 @@ wear-compose-foundation = { group = "androidx.wear.compose", name = "compose-fou
 kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
 wear-compose-navigation = { group = "androidx.wear.compose", name = "compose-navigation", version.ref = "wearCompose" }
 wear-ongoing = { group = "androidx.wear", name = "wear-ongoing", version.ref = "wearOngoing" }
+wear-input = { group = "androidx.wear", name = "wear-input", version.ref = "wearInput" }
 org-json = { group = "org.json", name = "json", version.ref = "orgJson" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 

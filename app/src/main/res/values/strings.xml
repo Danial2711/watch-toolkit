@@ -1,3 +1,5 @@
 <resources>
     <string name="app_name">RF Toolkit</string>
+    <string name="hce_service_desc">RF Toolkit programmable NDEF tag</string>
+    <string name="hce_aid_desc">NFC Forum Type 4 Tag (NDEF)</string>
 </resources>

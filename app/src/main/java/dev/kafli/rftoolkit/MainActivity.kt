@@ -1,6 +1,10 @@
 package dev.kafli.rftoolkit
 
 import android.Manifest
+import android.app.RemoteInput
+import android.content.ComponentName
+import android.nfc.NfcAdapter
+import android.nfc.cardemulation.CardEmulation
 import android.os.Build
 import android.os.Bundle
 import android.view.WindowManager
@@ -18,6 +22,7 @@ import androidx.wear.compose.material3.MaterialTheme
 import androidx.wear.compose.navigation.SwipeDismissableNavHost
 import androidx.wear.compose.navigation.composable
 import androidx.wear.compose.navigation.rememberSwipeDismissableNavController
+import androidx.wear.input.RemoteInputIntentHelper
 import dev.kafli.rftoolkit.core.ExportStore
 import dev.kafli.rftoolkit.modules.probe.CapabilityProbe
 import dev.kafli.rftoolkit.modules.ble.TrackerScan
@@ -26,6 +31,9 @@ import dev.kafli.rftoolkit.modules.hunt.HuntEngine
 import dev.kafli.rftoolkit.modules.hunt.HuntTarget
 import dev.kafli.rftoolkit.modules.hunt.TargetScan
 import dev.kafli.rftoolkit.modules.ble.TrackerWatch
+import dev.kafli.rftoolkit.modules.nfc.TagContentType
+import dev.kafli.rftoolkit.modules.nfc.TagEmulationService
+import dev.kafli.rftoolkit.modules.nfc.TagStore
 import dev.kafli.rftoolkit.modules.survey.SurveyPreset
 import dev.kafli.rftoolkit.modules.survey.SurveyService
 import dev.kafli.rftoolkit.modules.survey.SurveyState
@@ -36,12 +44,15 @@ import dev.kafli.rftoolkit.ui.HomeEntry
 import dev.kafli.rftoolkit.ui.HomeScreen
 import dev.kafli.rftoolkit.ui.HuntPickerScreen
 import dev.kafli.rftoolkit.ui.HuntScreen
+import dev.kafli.rftoolkit.ui.NfcTagScreen
 import dev.kafli.rftoolkit.ui.ProbeScreen
 import dev.kafli.rftoolkit.ui.SurveyScreen
 import dev.kafli.rftoolkit.ui.TrackersScreen
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+private const val TAG_INPUT_KEY = "tag_value"
 
 class MainActivity : ComponentActivity() {
 
@@ -53,6 +64,41 @@ class MainActivity : ComponentActivity() {
     // Findings quick-scan state
     private var findingsScanning by mutableStateOf(false)
     private var findingsStatus by mutableStateOf<String?>(null)
+
+    // NFC tag text entry (watch keyboard / voice via RemoteInput)
+    private var pendingTagType = TagContentType.URL
+
+    private val tagInput =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            val text = result.data?.let { RemoteInput.getResultsFromIntent(it)?.getCharSequence(TAG_INPUT_KEY) }
+                ?.toString()?.trim()
+            if (!text.isNullOrEmpty()) {
+                val value = if (pendingTagType == TagContentType.URL && !text.contains("://")) "https://$text" else text
+                TagStore.update(this) { it.copy(type = pendingTagType, value = value) }
+            }
+        }
+
+    /**
+     * Samsung Health also registers the NDEF tag AID. While our NFC screen is in the foreground we
+     * ask Android to route that AID to our service; it reverts as soon as we release it.
+     */
+    private fun setTagServicePreferred(preferred: Boolean) {
+        runCatching {
+            val ce = CardEmulation.getInstance(NfcAdapter.getDefaultAdapter(this) ?: return)
+            if (preferred) ce.setPreferredService(this, ComponentName(this, TagEmulationService::class.java))
+            else ce.unsetPreferredService(this)
+        }
+    }
+
+    private fun editTag(type: TagContentType) {
+        pendingTagType = type
+        val intent = RemoteInputIntentHelper.createActionRemoteInputIntent()
+        val input = RemoteInput.Builder(TAG_INPUT_KEY)
+            .setLabel(if (type == TagContentType.URL) "URL" else "Text")
+            .build()
+        RemoteInputIntentHelper.putRemoteInputsExtra(intent, listOf(input))
+        tagInput.launch(intent)
+    }
 
     // Fox hunt target scan state
     private var huntCandidates by mutableStateOf<List<Candidate>>(emptyList())
@@ -91,6 +137,7 @@ class MainActivity : ComponentActivity() {
             HomeEntry("Wi-Fi findings", "Weak security · IoT · evil twin", "findings"),
             HomeEntry("Trackers", "AirTag · SmartTag · Tile · FMDN", "trackers"),
             HomeEntry("Fox hunt", "Find a device by signal", "hunt"),
+            HomeEntry("NFC tag", "Watch as a programmable tag", "nfc"),
             HomeEntry("Capability probe", "What this watch supports", "probe"),
         )
         setContent {
@@ -182,6 +229,22 @@ class MainActivity : ComponentActivity() {
                                 onStop = { HuntEngine.stop() },
                                 onSweep = { HuntEngine.startSweep() },
                                 onToggleHaptics = { HuntEngine.toggleHaptics() },
+                            )
+                        }
+                        composable("nfc") {
+                            TagStore.load(this@MainActivity)
+                            val cfg by TagStore.config.collectAsStateWithLifecycle()
+                            val log by TagStore.log.collectAsStateWithLifecycle()
+                            NfcTagScreen(
+                                config = cfg,
+                                log = log,
+                                onToggle = { TagStore.update(this@MainActivity) { it.copy(enabled = !it.enabled) } },
+                                onPreset = { type, value -> TagStore.update(this@MainActivity) { it.copy(type = type, value = value) } },
+                                onEditUrl = { editTag(TagContentType.URL) },
+                                onEditText = { editTag(TagContentType.TEXT) },
+                                onClearLog = { TagStore.clearLog() },
+                                onEnter = { setTagServicePreferred(true) },
+                                onExit = { setTagServicePreferred(false) },
                             )
                         }
                         composable("probe") {

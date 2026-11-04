@@ -48,6 +48,7 @@ dependencies {
     implementation(libs.wear.compose.foundation)
     implementation(libs.wear.compose.navigation)
     implementation(libs.wear.ongoing)
+    implementation(libs.wear.input)
     implementation(libs.kotlinx.coroutines.android)
     testImplementation(libs.junit)
     testImplementation(libs.org.json) // real org.json for JVM unit tests (Android stub throws)
