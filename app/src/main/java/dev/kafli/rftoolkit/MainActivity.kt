@@ -31,6 +31,14 @@ import dev.kafli.rftoolkit.modules.hunt.HuntEngine
 import dev.kafli.rftoolkit.modules.hunt.HuntTarget
 import dev.kafli.rftoolkit.modules.hunt.TargetScan
 import dev.kafli.rftoolkit.modules.ble.TrackerWatch
+import dev.kafli.rftoolkit.modules.lan.LanListener
+import dev.kafli.rftoolkit.modules.radar.ChannelScan
+import dev.kafli.rftoolkit.modules.radar.ChannelStat
+import dev.kafli.rftoolkit.modules.radar.JamMonitor
+import dev.kafli.rftoolkit.modules.radar.MagMonitor
+import dev.kafli.rftoolkit.modules.radar.UltraMonitor
+import dev.kafli.rftoolkit.modules.net.LinkInfo
+import dev.kafli.rftoolkit.modules.net.NetTools
 import dev.kafli.rftoolkit.modules.nfc.TagContentType
 import dev.kafli.rftoolkit.modules.nfc.TagEmulationService
 import dev.kafli.rftoolkit.modules.nfc.TagStore
@@ -44,6 +52,14 @@ import dev.kafli.rftoolkit.ui.HomeEntry
 import dev.kafli.rftoolkit.ui.HomeScreen
 import dev.kafli.rftoolkit.ui.HuntPickerScreen
 import dev.kafli.rftoolkit.ui.HuntScreen
+import dev.kafli.rftoolkit.ui.ChannelsScreen
+import dev.kafli.rftoolkit.ui.JammingScreen
+import dev.kafli.rftoolkit.ui.LanScreen
+import dev.kafli.rftoolkit.ui.MagScreen
+import dev.kafli.rftoolkit.ui.RadarMenuScreen
+import dev.kafli.rftoolkit.ui.UltrasonicScreen
+import dev.kafli.rftoolkit.ui.NetTool
+import dev.kafli.rftoolkit.ui.NetToolsScreen
 import dev.kafli.rftoolkit.ui.NfcTagScreen
 import dev.kafli.rftoolkit.ui.ProbeScreen
 import dev.kafli.rftoolkit.ui.SurveyScreen
@@ -52,7 +68,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-private const val TAG_INPUT_KEY = "tag_value"
+private const val TEXT_INPUT_KEY = "text_value"
 
 class MainActivity : ComponentActivity() {
 
@@ -65,18 +81,79 @@ class MainActivity : ComponentActivity() {
     private var findingsScanning by mutableStateOf(false)
     private var findingsStatus by mutableStateOf<String?>(null)
 
-    // NFC tag text entry (watch keyboard / voice via RemoteInput)
-    private var pendingTagType = TagContentType.URL
+    // Text entry via the watch keyboard / voice (RemoteInput), shared by NFC and network tools.
+    private var onTextResult: ((String) -> Unit)? = null
 
-    private val tagInput =
+    private val textInput =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-            val text = result.data?.let { RemoteInput.getResultsFromIntent(it)?.getCharSequence(TAG_INPUT_KEY) }
+            val text = result.data?.let { RemoteInput.getResultsFromIntent(it)?.getCharSequence(TEXT_INPUT_KEY) }
                 ?.toString()?.trim()
-            if (!text.isNullOrEmpty()) {
-                val value = if (pendingTagType == TagContentType.URL && !text.contains("://")) "https://$text" else text
-                TagStore.update(this) { it.copy(type = pendingTagType, value = value) }
+            if (!text.isNullOrEmpty()) onTextResult?.invoke(text)
+            onTextResult = null
+        }
+
+    private fun askText(label: String, onResult: (String) -> Unit) {
+        onTextResult = onResult
+        val intent = RemoteInputIntentHelper.createActionRemoteInputIntent()
+        RemoteInputIntentHelper.putRemoteInputsExtra(intent, listOf(RemoteInput.Builder(TEXT_INPUT_KEY).setLabel(label).build()))
+        textInput.launch(intent)
+    }
+
+    private fun editTag(type: TagContentType) {
+        askText(if (type == TagContentType.URL) "URL" else "Text") { text ->
+            val value = if (type == TagContentType.URL && !text.contains("://")) "https://$text" else text
+            TagStore.update(this) { it.copy(type = type, value = value) }
+        }
+    }
+
+    // Threat radar
+    private var channelStats by mutableStateOf<List<ChannelStat>>(emptyList())
+    private var channelScanning by mutableStateOf(false)
+    private val radarPermissions = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { }
+
+    private fun scanChannels() {
+        if (channelScanning) return
+        channelScanning = true
+        lifecycleScope.launch {
+            channelStats = runCatching { ChannelScan.scan(this@MainActivity) }.getOrDefault(channelStats)
+            channelScanning = false
+        }
+    }
+
+    // Network tools state
+    private var netLink by mutableStateOf<LinkInfo?>(null)
+    private var netTarget by mutableStateOf("example.com")
+    private var netRunning by mutableStateOf<NetTool?>(null)
+    private var netProgress by mutableStateOf<String?>(null)
+    private var netOutput by mutableStateOf<List<String>>(emptyList())
+
+    private fun runNetTool(tool: NetTool) {
+        if (netRunning != null) return
+        netRunning = tool
+        netProgress = null
+        netOutput = emptyList()
+        lifecycleScope.launch {
+            netOutput = try {
+                val t = netTarget
+                when (tool) {
+                    NetTool.PING -> NetTools.ping(t)
+                    NetTool.TRACE -> NetTools.traceroute(t)
+                    NetTool.DNS -> NetTools.dnsCheck(t)
+                    NetTool.TLS -> NetTools.tlsInspect(t)
+                    NetTool.HEADERS -> NetTools.httpHeaders(t)
+                    NetTool.PORTS -> {
+                        val ip = withContext(Dispatchers.IO) { java.net.InetAddress.getByName(t).hostAddress ?: t }
+                        NetTools.scanHost(ip)
+                    }
+                    NetTool.SWEEP -> NetTools.sweepSubnet(this@MainActivity) { netProgress = it }
+                }
+            } catch (e: Throwable) {
+                listOf("✗ ${e.message ?: e.javaClass.simpleName}")
+            } finally {
+                netRunning = null
             }
         }
+    }
 
     /**
      * Samsung Health also registers the NDEF tag AID. While our NFC screen is in the foreground we
@@ -88,16 +165,6 @@ class MainActivity : ComponentActivity() {
             if (preferred) ce.setPreferredService(this, ComponentName(this, TagEmulationService::class.java))
             else ce.unsetPreferredService(this)
         }
-    }
-
-    private fun editTag(type: TagContentType) {
-        pendingTagType = type
-        val intent = RemoteInputIntentHelper.createActionRemoteInputIntent()
-        val input = RemoteInput.Builder(TAG_INPUT_KEY)
-            .setLabel(if (type == TagContentType.URL) "URL" else "Text")
-            .build()
-        RemoteInputIntentHelper.putRemoteInputsExtra(intent, listOf(input))
-        tagInput.launch(intent)
     }
 
     // Fox hunt target scan state
@@ -138,6 +205,9 @@ class MainActivity : ComponentActivity() {
             HomeEntry("Trackers", "AirTag · SmartTag · Tile · FMDN", "trackers"),
             HomeEntry("Fox hunt", "Find a device by signal", "hunt"),
             HomeEntry("NFC tag", "Watch as a programmable tag", "nfc"),
+            HomeEntry("Network tools", "Ping · DNS · TLS · ports", "net"),
+            HomeEntry("LAN listener", "mDNS · SSDP · isolation", "lan"),
+            HomeEntry("Threat radar", "Channels · jamming · ultrasonic", "radar"),
             HomeEntry("Capability probe", "What this watch supports", "probe"),
         )
         setContent {
@@ -245,6 +315,61 @@ class MainActivity : ComponentActivity() {
                                 onClearLog = { TagStore.clearLog() },
                                 onEnter = { setTagServicePreferred(true) },
                                 onExit = { setTagServicePreferred(false) },
+                            )
+                        }
+                        composable("net") {
+                            NetToolsScreen(
+                                link = netLink,
+                                target = netTarget,
+                                running = netRunning,
+                                progress = netProgress,
+                                output = netOutput,
+                                onEnter = {
+                                    lifecycleScope.launch {
+                                        NetTools.acquireWifi(this@MainActivity)
+                                        netLink = NetTools.linkInfo(this@MainActivity)
+                                    }
+                                },
+                                onExit = { NetTools.releaseWifi(this@MainActivity) },
+                                onEditTarget = { askText("Host or IP") { netTarget = it } },
+                                onSetTarget = { netTarget = it },
+                                onRun = { runNetTool(it) },
+                            )
+                        }
+                        composable("lan") {
+                            val lan by LanListener.state.collectAsStateWithLifecycle()
+                            LanScreen(
+                                state = lan,
+                                onEnter = { lifecycleScope.launch { LanListener.start(this@MainActivity) } },
+                                onExit = { LanListener.stop(this@MainActivity) },
+                                onAskOnce = { LanListener.askOnce() },
+                            )
+                        }
+                        composable("radar") {
+                            RadarMenuScreen(
+                                onEnter = { radarPermissions.launch(surveyPermissionList() + Manifest.permission.RECORD_AUDIO) },
+                                onOpen = { nav.navigate(it) },
+                            )
+                        }
+                        composable("radar/channels") {
+                            ChannelsScreen(channelStats, channelScanning) { scanChannels() }
+                        }
+                        composable("radar/jam") {
+                            val st by JamMonitor.state.collectAsStateWithLifecycle()
+                            JammingScreen(st, onEnter = { JamMonitor.start(this@MainActivity) }, onExit = { JamMonitor.stop() })
+                        }
+                        composable("radar/ultra") {
+                            val st by UltraMonitor.state.collectAsStateWithLifecycle()
+                            UltrasonicScreen(st, onEnter = { UltraMonitor.start(this@MainActivity) }, onExit = { UltraMonitor.stop() })
+                        }
+                        composable("radar/mag") {
+                            val st by MagMonitor.state.collectAsStateWithLifecycle()
+                            MagScreen(
+                                st,
+                                onEnter = { MagMonitor.start(this@MainActivity) },
+                                onExit = { MagMonitor.stop() },
+                                onCalibrate = { MagMonitor.calibrate() },
+                                onToggleHaptics = { MagMonitor.toggleHaptics() },
                             )
                         }
                         composable("probe") {
