@@ -34,6 +34,7 @@ fun TrackersScreen(
     onScan: () -> Unit,
     onToggleGuard: () -> Unit,
     onClear: () -> Unit,
+    onHunt: (TrackerTrack) -> Unit,
 ) {
     var expanded by remember { mutableStateOf<String?>(null) }
     val listState = rememberScalingLazyListState()
@@ -112,6 +113,13 @@ fun TrackersScreen(
                                 "${t.places.size} places · best ${t.bestRssi} dBm",
                             style = MaterialTheme.typography.bodySmall,
                             modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                    item(key = "${t.id}/hunt") {
+                        FilledTonalButton(
+                            onClick = { onHunt(t) },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("Fox hunt this") },
                         )
                     }
                 }

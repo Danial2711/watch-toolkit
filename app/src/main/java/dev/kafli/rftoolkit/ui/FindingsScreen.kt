@@ -31,6 +31,7 @@ fun FindingsScreen(
     onScan: () -> Unit,
     onClear: () -> Unit,
     onResetBaseline: () -> Unit,
+    onHunt: (bssid: String, ssid: String) -> Unit,
 ) {
     var expanded by remember { mutableStateOf<String?>(null) }
     var confirmReset by remember { mutableStateOf(false) }
@@ -105,6 +106,13 @@ fun FindingsScreen(
                             },
                             style = MaterialTheme.typography.bodySmall,
                             modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                    item(key = "$key/hunt") {
+                        FilledTonalButton(
+                            onClick = { onHunt(f.id, f.name) },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("Fox hunt this AP") },
                         )
                     }
                 }

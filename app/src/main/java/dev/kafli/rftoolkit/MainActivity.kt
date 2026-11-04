@@ -21,6 +21,10 @@ import androidx.wear.compose.navigation.rememberSwipeDismissableNavController
 import dev.kafli.rftoolkit.core.ExportStore
 import dev.kafli.rftoolkit.modules.probe.CapabilityProbe
 import dev.kafli.rftoolkit.modules.ble.TrackerScan
+import dev.kafli.rftoolkit.modules.hunt.Candidate
+import dev.kafli.rftoolkit.modules.hunt.HuntEngine
+import dev.kafli.rftoolkit.modules.hunt.HuntTarget
+import dev.kafli.rftoolkit.modules.hunt.TargetScan
 import dev.kafli.rftoolkit.modules.ble.TrackerWatch
 import dev.kafli.rftoolkit.modules.survey.SurveyPreset
 import dev.kafli.rftoolkit.modules.survey.SurveyService
@@ -30,6 +34,8 @@ import dev.kafli.rftoolkit.modules.wifi.WifiScan
 import dev.kafli.rftoolkit.ui.FindingsScreen
 import dev.kafli.rftoolkit.ui.HomeEntry
 import dev.kafli.rftoolkit.ui.HomeScreen
+import dev.kafli.rftoolkit.ui.HuntPickerScreen
+import dev.kafli.rftoolkit.ui.HuntScreen
 import dev.kafli.rftoolkit.ui.ProbeScreen
 import dev.kafli.rftoolkit.ui.SurveyScreen
 import dev.kafli.rftoolkit.ui.TrackersScreen
@@ -47,6 +53,14 @@ class MainActivity : ComponentActivity() {
     // Findings quick-scan state
     private var findingsScanning by mutableStateOf(false)
     private var findingsStatus by mutableStateOf<String?>(null)
+
+    // Fox hunt target scan state
+    private var huntCandidates by mutableStateOf<List<Candidate>>(emptyList())
+    private var huntScanning by mutableStateOf(false)
+    private var huntStatus by mutableStateOf<String?>(null)
+
+    private val huntScanPermissions =
+        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { huntScan() }
 
     // Trackers quick-scan state
     private var trackerScanning by mutableStateOf(false)
@@ -76,6 +90,7 @@ class MainActivity : ComponentActivity() {
             HomeEntry("City survey", "Wi-Fi + BLE + GPS log", "survey"),
             HomeEntry("Wi-Fi findings", "Weak security · IoT · evil twin", "findings"),
             HomeEntry("Trackers", "AirTag · SmartTag · Tile · FMDN", "trackers"),
+            HomeEntry("Fox hunt", "Find a device by signal", "hunt"),
             HomeEntry("Capability probe", "What this watch supports", "probe"),
         )
         setContent {
@@ -114,6 +129,10 @@ class MainActivity : ComponentActivity() {
                                 onScan = { scanPermissions.launch(surveyPermissionList()) },
                                 onClear = { WifiFindings.clearFindings() },
                                 onResetBaseline = { WifiFindings.clearBaseline(this@MainActivity) },
+                                onHunt = { bssid, ssid ->
+                                    HuntEngine.select(HuntTarget.Wifi(bssid, ssid))
+                                    nav.navigate("hunt/active")
+                                },
                             )
                         }
                         composable("trackers") {
@@ -135,6 +154,34 @@ class MainActivity : ComponentActivity() {
                                     }
                                 },
                                 onClear = { TrackerWatch.clear() },
+                                onHunt = { t ->
+                                    HuntEngine.select(HuntTarget.Ble(t.id, t.tracker.kind.label))
+                                    nav.navigate("hunt/active")
+                                },
+                            )
+                        }
+                        composable("hunt") {
+                            val tracks by TrackerWatch.tracks.collectAsStateWithLifecycle()
+                            HuntPickerScreen(
+                                trackers = tracks,
+                                candidates = huntCandidates,
+                                scanning = huntScanning,
+                                scanStatus = huntStatus,
+                                onScan = { huntScanPermissions.launch(surveyPermissionList()) },
+                                onPick = { target ->
+                                    HuntEngine.select(target)
+                                    nav.navigate("hunt/active")
+                                },
+                            )
+                        }
+                        composable("hunt/active") {
+                            val hunt by HuntEngine.state.collectAsStateWithLifecycle()
+                            HuntScreen(
+                                state = hunt,
+                                onStart = { HuntEngine.start(this@MainActivity) },
+                                onStop = { HuntEngine.stop() },
+                                onSweep = { HuntEngine.startSweep() },
+                                onToggleHaptics = { HuntEngine.toggleHaptics() },
                             )
                         }
                         composable("probe") {
@@ -161,6 +208,21 @@ class MainActivity : ComponentActivity() {
             add(Manifest.permission.POST_NOTIFICATIONS)
         }
     }.toTypedArray()
+
+    private fun huntScan() {
+        if (huntScanning) return
+        huntScanning = true
+        lifecycleScope.launch {
+            huntStatus = try {
+                huntCandidates = TargetScan.scan(this@MainActivity)
+                "${huntCandidates.count { it.kind == "BLE" }} BLE · ${huntCandidates.count { it.kind == "Wi-Fi" }} Wi-Fi"
+            } catch (t: Throwable) {
+                "Scan failed: ${t.message}"
+            } finally {
+                huntScanning = false
+            }
+        }
+    }
 
     private fun trackerScan() {
         if (trackerScanning) return
