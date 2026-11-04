@@ -76,6 +76,7 @@ fun SurveyScreen(
                 )
                 status.locProviders?.let { add("Loc via: $it") }
                 add("Findings: ${status.findings} (${status.highFindings} high)")
+                add("Trackers: ${status.trackers}" + if (status.trackersFollowing > 0) " · ‼ ${status.trackersFollowing} FOLLOWING" else "")
                 add("Log: ${status.records} rec · ${status.bytes / 1024} KB")
                 val drop = status.battStartPct?.let { s -> status.battNowPct?.let { s - it } }
                 add("Battery: ${status.battNowPct ?: "?"}%" + (drop?.let { " (−$it%)" } ?: ""))
@@ -98,7 +99,8 @@ fun SurveyScreen(
 private fun presetHint(name: String) = when (name) {
     "LOW" -> "Wi-Fi 60 s · BLE 10/60 s"
     "BALANCED" -> "Wi-Fi 15 s · BLE 15/30 s"
-    else -> "Wi-Fi 5 s · BLE continuous"
+    "MAX" -> "Wi-Fi 5 s · BLE continuous"
+    else -> "Trackers only · BLE 15/60 s"
 }
 
 private fun elapsed(ms: Long): String {

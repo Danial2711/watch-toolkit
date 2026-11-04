@@ -1,5 +1,8 @@
 package dev.kafli.rftoolkit.modules.wifi
 
+import dev.kafli.rftoolkit.core.Finding
+import dev.kafli.rftoolkit.core.FindingType
+import dev.kafli.rftoolkit.core.Severity
 /**
  * Stateless per-AP rules. Heuristic SSID patterns are deliberately conservative;
  * they are hints, not proof — the detail string says what matched.

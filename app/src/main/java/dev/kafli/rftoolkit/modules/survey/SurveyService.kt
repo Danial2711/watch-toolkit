@@ -37,8 +37,11 @@ import androidx.wear.ongoing.OngoingActivity
 import androidx.wear.ongoing.Status
 import dev.kafli.rftoolkit.MainActivity
 import dev.kafli.rftoolkit.core.ExportStore
+import dev.kafli.rftoolkit.core.Severity
+import dev.kafli.rftoolkit.modules.ble.GeoFix
+import dev.kafli.rftoolkit.modules.ble.TrackerScan
+import dev.kafli.rftoolkit.modules.ble.TrackerWatch
 import dev.kafli.rftoolkit.modules.wifi.ApProfile
-import dev.kafli.rftoolkit.modules.wifi.Severity
 import dev.kafli.rftoolkit.modules.wifi.WifiFindings
 import dev.kafli.rftoolkit.modules.wifi.WifiScan
 import kotlinx.coroutines.CoroutineScope
@@ -128,7 +131,7 @@ class SurveyService : Service() {
         if (keepWifi) holdWifi()
 
         startLocation()
-        startWifiLoop()
+        if (preset.wifi) startWifiLoop()
         startBleLoop()
         startBatteryAndStatusLoop()
         return START_NOT_STICKY
@@ -352,6 +355,15 @@ class SurveyService : Service() {
         val raw = r.scanRecord?.bytes
         val key = addr + ":" + (raw?.contentHashCode() ?: 0)
         val ms = System.currentTimeMillis() - SystemClock.elapsedRealtime() + r.timestampNanos / 1_000_000
+        // Phase 3: tracker classification + following detection (every advert, before throttling).
+        val fixNow = freshFix()
+        for (finding in TrackerWatch.process(this, addr, raw, r.rssi, ms, fixNow?.let { GeoFix(it.lat, it.lon, it.accM) })) {
+            if (sessionFindingKeys.add(finding.key)) {
+                writer.write(finding.toJson().put("loc", fixNow?.let { JSONArray().put(it.lat).put(it.lon).put(it.accM.toDouble()) } ?: JSONObject.NULL))
+                findingCount++
+                if (finding.type.severity == Severity.HIGH) highFindingCount++
+            }
+        }
         if (!bleThrottle.shouldEmit(key, ms)) return
         writer.write(
             Records.ble(
@@ -379,15 +391,19 @@ class SurveyService : Service() {
             SurveyState.update { it.copy(lastError = "No BLE scanner (Bluetooth off?)") }
             return
         }
-        val mode = if (preset == SurveyPreset.LOW) ScanSettings.SCAN_MODE_LOW_POWER else ScanSettings.SCAN_MODE_LOW_LATENCY
+        val mode = when (preset) {
+            SurveyPreset.LOW -> ScanSettings.SCAN_MODE_LOW_POWER
+            SurveyPreset.TRACKER_GUARD -> ScanSettings.SCAN_MODE_BALANCED
+            else -> ScanSettings.SCAN_MODE_LOW_LATENCY
+        }
         val settings = ScanSettings.Builder().setScanMode(mode).build()
-        val filters = BleFilters.broad()
+        val filters = if (preset.trackersOnly) TrackerScan.filters() else BleFilters.broad()
         scope.launch {
             while (isActive) {
                 bleWindowAdverts = 0
                 val started = System.currentTimeMillis()
                 runCatching {
-                    scanner.startScan(null, settings, bleCallback)
+                    if (!preset.trackersOnly) scanner.startScan(null, settings, bleCallback)
                     scanner.startScan(filters, settings, bleFilteredCallback)
                 }.onFailure { e -> SurveyState.update { it.copy(lastError = "BLE start: ${e.message}") } }
                 delay(preset.bleOnMs)
@@ -432,6 +448,8 @@ class SurveyService : Service() {
                         fixAccM = f?.accM, fixAgeS = f?.let { (System.currentTimeMillis() - it.ms) / 1000 },
                         battNowPct = battery.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY),
                         findings = findingCount, highFindings = highFindingCount,
+                        trackers = TrackerWatch.tracks.value.size,
+                        trackersFollowing = TrackerWatch.tracks.value.count { t -> t.following },
                     )
                 }
                 tick++

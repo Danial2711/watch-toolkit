@@ -20,6 +20,9 @@ import androidx.wear.compose.navigation.composable
 import androidx.wear.compose.navigation.rememberSwipeDismissableNavController
 import dev.kafli.rftoolkit.core.ExportStore
 import dev.kafli.rftoolkit.modules.probe.CapabilityProbe
+import dev.kafli.rftoolkit.modules.ble.TrackerScan
+import dev.kafli.rftoolkit.modules.ble.TrackerWatch
+import dev.kafli.rftoolkit.modules.survey.SurveyPreset
 import dev.kafli.rftoolkit.modules.survey.SurveyService
 import dev.kafli.rftoolkit.modules.survey.SurveyState
 import dev.kafli.rftoolkit.modules.wifi.WifiFindings
@@ -29,6 +32,7 @@ import dev.kafli.rftoolkit.ui.HomeEntry
 import dev.kafli.rftoolkit.ui.HomeScreen
 import dev.kafli.rftoolkit.ui.ProbeScreen
 import dev.kafli.rftoolkit.ui.SurveyScreen
+import dev.kafli.rftoolkit.ui.TrackersScreen
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -43,6 +47,13 @@ class MainActivity : ComponentActivity() {
     // Findings quick-scan state
     private var findingsScanning by mutableStateOf(false)
     private var findingsStatus by mutableStateOf<String?>(null)
+
+    // Trackers quick-scan state
+    private var trackerScanning by mutableStateOf(false)
+    private var trackerStatus by mutableStateOf<String?>(null)
+
+    private val trackerScanPermissions =
+        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { trackerScan() }
 
     private val scanPermissions =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { quickScan() }
@@ -64,6 +75,7 @@ class MainActivity : ComponentActivity() {
         val entries = listOf(
             HomeEntry("City survey", "Wi-Fi + BLE + GPS log", "survey"),
             HomeEntry("Wi-Fi findings", "Weak security · IoT · evil twin", "findings"),
+            HomeEntry("Trackers", "AirTag · SmartTag · Tile · FMDN", "trackers"),
             HomeEntry("Capability probe", "What this watch supports", "probe"),
         )
         setContent {
@@ -79,8 +91,13 @@ class MainActivity : ComponentActivity() {
                             SurveyScreen(
                                 status = survey,
                                 onToggle = {
-                                    if (survey.running) SurveyService.stop(this@MainActivity)
-                                    else surveyPermissions.launch(surveyPermissionList())
+                                    if (survey.running) {
+                                        SurveyService.stop(this@MainActivity)
+                                    } else {
+                                        // Guard preset is only started from the Trackers screen.
+                                        if (!survey.preset.selectable) SurveyState.selectPreset(SurveyPreset.BALANCED)
+                                        surveyPermissions.launch(surveyPermissionList())
+                                    }
                                 },
                                 onCyclePreset = { SurveyState.selectPreset(survey.preset.next()) },
                                 onToggleKeepWifi = { SurveyState.toggleKeepWifi() },
@@ -97,6 +114,27 @@ class MainActivity : ComponentActivity() {
                                 onScan = { scanPermissions.launch(surveyPermissionList()) },
                                 onClear = { WifiFindings.clearFindings() },
                                 onResetBaseline = { WifiFindings.clearBaseline(this@MainActivity) },
+                            )
+                        }
+                        composable("trackers") {
+                            val tracks by TrackerWatch.tracks.collectAsStateWithLifecycle()
+                            val guard = survey.running && survey.preset == SurveyPreset.TRACKER_GUARD
+                            TrackersScreen(
+                                tracks = tracks,
+                                scanning = trackerScanning,
+                                scanStatus = trackerStatus,
+                                guardRunning = guard,
+                                otherSurveyRunning = survey.running && !guard,
+                                onScan = { trackerScanPermissions.launch(surveyPermissionList()) },
+                                onToggleGuard = {
+                                    if (guard) {
+                                        SurveyService.stop(this@MainActivity)
+                                    } else {
+                                        SurveyState.selectPreset(SurveyPreset.TRACKER_GUARD)
+                                        surveyPermissions.launch(surveyPermissionList())
+                                    }
+                                },
+                                onClear = { TrackerWatch.clear() },
                             )
                         }
                         composable("probe") {
@@ -123,6 +161,22 @@ class MainActivity : ComponentActivity() {
             add(Manifest.permission.POST_NOTIFICATIONS)
         }
     }.toTypedArray()
+
+    private fun trackerScan() {
+        if (trackerScanning) return
+        trackerScanning = true
+        lifecycleScope.launch {
+            trackerStatus = try {
+                val n = TrackerScan.scanOnce(this@MainActivity)
+                val tracks = TrackerWatch.tracks.value
+                "$n adverts · ${tracks.size} trackers"
+            } catch (t: Throwable) {
+                "Scan failed: ${t.message}"
+            } finally {
+                trackerScanning = false
+            }
+        }
+    }
 
     private fun quickScan() {
         if (findingsScanning) return

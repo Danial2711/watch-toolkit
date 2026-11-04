@@ -5,7 +5,7 @@ Usage:
   tools/survey.py summary  tools/out/survey-XXXX.jsonl
   tools/survey.py wigle    tools/out/survey-XXXX.jsonl  [-o out.csv]   # WiGLE CSV 1.4 (rows with location only)
   tools/survey.py geojson  tools/out/survey-XXXX.jsonl  [-o out.geojson]
-  tools/survey.py findings tools/out/survey-XXXX.jsonl              # Wi-Fi security findings (schema v1 "finding" rows)
+  tools/survey.py findings tools/out/survey-XXXX.jsonl              # Wi-Fi + BLE tracker findings ("finding" rows)
 
 Standard library only.
 """
@@ -172,7 +172,7 @@ def cmd_findings(rows, _args):
             loc = f.get("loc")
             where = f"  @{loc[0]:.5f},{loc[1]:.5f}" if loc else ""
             rssi = f"{f['rssi']:4d}" if f["rssi"] is not None else "   ?"
-            print(f"    {rssi} dBm  {f['bssid']}  {f['ssid']!r:<28} {f['detail']}{where}")
+            print(f"    {rssi} dBm  {f.get('id', f.get('bssid'))}  {f.get('name', f.get('ssid'))!r:<28} {f['detail']}{where}")
 
 
 def main():

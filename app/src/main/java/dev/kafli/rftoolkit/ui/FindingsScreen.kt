@@ -20,7 +20,7 @@ import androidx.wear.compose.material3.OutlinedButton
 import androidx.wear.compose.material3.ScreenScaffold
 import androidx.wear.compose.material3.Text
 import dev.kafli.rftoolkit.modules.wifi.FindingEntry
-import dev.kafli.rftoolkit.modules.wifi.Severity
+import dev.kafli.rftoolkit.core.Severity
 
 @Composable
 fun FindingsScreen(
@@ -88,7 +88,7 @@ fun FindingsScreen(
                         },
                         secondaryLabel = {
                             Text(
-                                (f.ssid.ifEmpty { "<hidden>" }) + (e.bestRssi?.let { " · $it dBm" } ?: ""),
+                                (f.name.ifEmpty { "<hidden>" }) + (e.bestRssi?.let { " · $it dBm" } ?: ""),
                                 maxLines = 1, overflow = TextOverflow.Ellipsis,
                             )
                         },
@@ -98,7 +98,7 @@ fun FindingsScreen(
                     item(key = "$key/detail") {
                         Text(
                             buildString {
-                                append(f.bssid)
+                                append(f.id)
                                 if (f.detail.isNotBlank()) append("\n").append(f.detail)
                                 append("\n").append(f.type.explain)
                                 append("\nSeen ${e.count}×")

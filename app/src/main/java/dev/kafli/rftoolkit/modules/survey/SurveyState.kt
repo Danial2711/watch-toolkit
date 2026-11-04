@@ -27,6 +27,8 @@ data class SurveyStatus(
     val locProviders: String? = null,
     val findings: Int = 0,
     val highFindings: Int = 0,
+    val trackers: Int = 0,
+    val trackersFollowing: Int = 0,
 )
 
 object SurveyState {

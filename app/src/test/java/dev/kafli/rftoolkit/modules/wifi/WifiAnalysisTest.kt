@@ -1,5 +1,8 @@
 package dev.kafli.rftoolkit.modules.wifi
 
+import dev.kafli.rftoolkit.core.Finding
+import dev.kafli.rftoolkit.core.FindingType
+import dev.kafli.rftoolkit.core.Severity
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse

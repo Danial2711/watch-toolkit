@@ -1,5 +1,8 @@
 package dev.kafli.rftoolkit.modules.wifi
 
+import dev.kafli.rftoolkit.core.Finding
+import dev.kafli.rftoolkit.core.FindingType
+import dev.kafli.rftoolkit.core.Severity
 import org.json.JSONArray
 import org.json.JSONObject
 

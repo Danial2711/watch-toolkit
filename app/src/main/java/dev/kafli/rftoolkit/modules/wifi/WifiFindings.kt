@@ -1,5 +1,8 @@
 package dev.kafli.rftoolkit.modules.wifi
 
+import dev.kafli.rftoolkit.core.Finding
+import dev.kafli.rftoolkit.core.FindingType
+import dev.kafli.rftoolkit.core.Severity
 import android.content.Context
 import dev.kafli.rftoolkit.core.Haptics
 import kotlinx.coroutines.flow.MutableStateFlow

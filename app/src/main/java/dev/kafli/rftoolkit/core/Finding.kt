@@ -1,4 +1,4 @@
-package dev.kafli.rftoolkit.modules.wifi
+package dev.kafli.rftoolkit.core
 
 import org.json.JSONObject
 
@@ -44,20 +44,35 @@ enum class FindingType(val title: String, val severity: Severity, val explain: S
     DEFAULT_SSID("Default router name", Severity.LOW, "SSID looks factory-default; the rest of the config may be too."),
     WIFI_DIRECT("Wi-Fi Direct device", Severity.INFO, "Printer/TV/phone exposing a Wi-Fi Direct group."),
     HIDDEN_SSID("Hidden SSID", Severity.INFO, "Hiding the SSID is not a security measure; clients reveal it."),
+
+    // ---- BLE trackers (Phase 3)
+    TRACKER_FOLLOWING(
+        "Tracker following you", Severity.HIGH,
+        "The same tracker was seen at several places you moved through. Check bags, pockets, car; use Fox hunt to locate it.",
+    ),
+    TRACKER_PERSISTENT(
+        "Persistent tracker nearby", Severity.MEDIUM,
+        "A tracker has been near you for a long time (no location data to confirm movement).",
+    ),
+    TRACKER_SEPARATED(
+        "Separated tracker nearby", Severity.LOW,
+        "A tracker away from its owner is broadcasting nearby. Common in cities (lost items); only worrying if it persists.",
+    ),
 }
 
+/** A finding about one network or device: [id] = BSSID / BLE address, [name] = SSID / device label. */
 data class Finding(
     val type: FindingType,
-    val bssid: String,
-    val ssid: String,
+    val id: String,
+    val name: String,
     val rssi: Int?,
     val ms: Long,
     val detail: String,
 ) {
-    /** One entry per (type, BSSID): repeated sightings update the same entry. */
-    val key: String get() = "${type.name}|$bssid"
+    /** One entry per (type, id): repeated sightings update the same entry. */
+    val key: String get() = "${type.name}|$id"
 
     fun toJson(): JSONObject = JSONObject()
         .put("t", "finding").put("ms", ms).put("type", type.name).put("sev", type.severity.name)
-        .put("bssid", bssid).put("ssid", ssid).put("rssi", rssi ?: JSONObject.NULL).put("detail", detail)
+        .put("id", id).put("name", name).put("rssi", rssi ?: JSONObject.NULL).put("detail", detail)
 }
